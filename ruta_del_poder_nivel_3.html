@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ruta del Poder - Nivel 3</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center;
+    background: radial-gradient(circle at top, #263b82, #090d29 72%);
+    color: #fff; font-family: system-ui, Arial, sans-serif; padding: 18px;
+  }
+  .game { width: min(960px, 100%); }
+  header { text-align: center; margin-bottom: 12px; }
+  h1 { margin: 0; color: #e4c5ff; text-shadow: 0 0 16px #a34cff; letter-spacing: 2px; }
+  .sub { color: #c8d8ff; margin: 5px 0 12px; }
+  .hud { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .pill { background: #171d4b; border: 1px solid #7b63ff; border-radius: 999px; padding: 8px 14px; }
+  canvas {
+    display: block; width: 100%; height: auto; aspect-ratio: 16 / 9;
+    border: 3px solid #8b65ff; border-radius: 16px;
+    background: #101d45; box-shadow: 0 0 28px #693bda88;
+  }
+  .under { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+  button {
+    background: linear-gradient(135deg, #9a4cff, #405df5); color: white;
+    border: 0; border-radius: 12px; padding: 11px 17px; font-weight: 700; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.15); }
+  .controls { display: grid; grid-template-columns: repeat(3, 46px); gap: 5px; justify-content: center; margin: 12px auto 0; }
+  .controls button { padding: 9px 0; font-size: 18px; touch-action: none; }
+  .controls .empty { visibility: hidden; }
+  #message { color: #f2dcff; font-weight: 700; min-height: 24px; text-align: center; margin-top: 8px; }
+  .help { color: #d6defe; font-size: 14px; text-align: center; }
+</style>
+</head>
+<body>
+<main class="game">
+  <header>
+    <h1>RUTA DEL PODER</h1>
+    <div class="sub">NIVEL 3 · RUPTURA DE SOMBRA</div>
+  </header>
+  <div class="hud">
+    <div class="pill">💎 Cristales: <span id="score">0</span>/5</div>
+    <div class="pill">❤️ Vidas: <span id="lives">3</span></div>
+    <div class="pill">🎯 Objetivo: llega al portal</div>
+  </div>
+  <canvas id="game" width="900" height="506" aria-label="Juego Ruta del Poder"></canvas>
+  <div id="message">¡Recoge los 5 cristales y encuentra el portal violeta!</div>
+  <div class="under">
+    <div class="help">⌨️ Usa las flechas o WASD para moverte. Evita las serpientes.</div>
+    <button id="restart">Volver a jugar</button>
+  </div>
+  <div class="controls" aria-label="Controles táctiles">
+    <span class="empty"></span><button data-key="ArrowUp">▲</button><span class="empty"></span>
+    <button data-key="ArrowLeft">◀</button><button data-key="ArrowDown">▼</button><button data-key="ArrowRight">▶</button>
+  </div>
+</main>
+<script>
+(() => {
+ const canvas = document.getElementById('game');
+ const ctx = canvas.getContext('2d');
+ const scoreEl = document.getElementById('score');
+ const livesEl = document.getElementById('lives');
+ const messageEl = document.getElementById('message');
+ const W = canvas.width, H = canvas.height;
+ const keys = {};
+ let player, crystals, enemies, score, lives, state, invuln, frame;
+
+ const portal = {x: 820, y: 82, r: 34};
+ const rand = (a,b) => Math.random()*(b-a)+a;
+ function reset() {
+   player = {x: 78, y: 420, r: 17, speed: 3.5};
+   crystals = [];
+   for (let i=0;i<5;i++) crystals.push({x: 170+i*135, y: i%2 ? 170 : 350, taken:false, phase:rand(0,6)});
+   enemies = [
+     {x: 290,y: 245,dx:2.0,dy:0, min:190,max:510},
+     {x: 570,y: 390,dx:1.8,dy:0,min:480,max:760},
+     {x: 690,y: 155,dx:0,dy:1.7,min:115,max:275}
+   ];
+   score=0; lives=3; state='playing'; invuln=0; frame=0;
+   scoreEl.textContent=score; livesEl.textContent=lives;
+   messageEl.textContent='¡Recoge los 5 cristales y encuentra el portal violeta!';
+ }
+ function roundedRect(x,y,w,h,r,color) {
+   ctx.fillStyle=color; ctx.beginPath(); ctx.roundRect(x,y,w,h,r); ctx.fill();
+ }
+ function drawBackground() {
+   const g=ctx.createLinearGradient(0,0,W,H);
+   g.addColorStop(0,'#193b69'); g.addColorStop(1,'#101638');
+   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+   // floating island
+   roundedRect(22,22,W-44,H-44,30,'#315c55');
+   roundedRect(31,31,W-62,H-62,25,'#57964d');
+   // grid-like stone paths
+   ctx.strokeStyle='#86c46a'; ctx.lineWidth=2; ctx.globalAlpha=.35;
+   for(let x=55;x<W-35;x+=55){ctx.beginPath();ctx.moveTo(x,35);ctx.lineTo(x,H-35);ctx.stroke();}
+   for(let y=55;y<H-35;y+=55){ctx.beginPath();ctx.moveTo(35,y);ctx.lineTo(W-35,y);ctx.stroke();}
+   ctx.globalAlpha=1;
+   // stepping-stone route
+   ctx.strokeStyle='#64708e'; ctx.lineWidth=54; ctx.lineCap='round'; ctx.lineJoin='round';
+   ctx.beginPath(); ctx.moveTo(70,420); ctx.lineTo(160,420); ctx.lineTo(160,300);
+   ctx.lineTo(390,300); ctx.lineTo(390,170); ctx.lineTo(610,170); ctx.lineTo(610,350);
+   ctx.lineTo(820,350); ctx.lineTo(820,82); ctx.stroke();
+   ctx.strokeStyle='#8996b7'; ctx.lineWidth=3; ctx.stroke();
+   // decorative crystals
+   for(let i=0;i<12;i++){
+     let x=65+(i*73)%760, y=70+(i*47)%350;
+     ctx.fillStyle='#35d7e8'; ctx.globalAlpha=.45;
+     ctx.beginPath();ctx.arc(x,y,3,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;
+   }
+   // shrubs
+   for(const [x,y] of [[95,95],[300,90],[490,420],[760,255],[260,450],[720,445]]) {
+     ctx.fillStyle='#1c704f';ctx.beginPath();ctx.arc(x,y,18,0,Math.PI*2);ctx.fill();
+     ctx.fillStyle='#46a95f';ctx.beginPath();ctx.arc(x-6,y-7,12,0,Math.PI*2);ctx.fill();
+   }
+ }
+ function drawCrystal(c) {
+   if(c.taken)return;
+   let bob=Math.sin(frame*.06+c.phase)*4;
+   ctx.save();ctx.translate(c.x,c.y+bob);
+   ctx.shadowColor='#d34cff';ctx.shadowBlur=20;
+   ctx.fillStyle='#e6a5ff';ctx.strokeStyle='#9d39ff';ctx.lineWidth=3;
+   ctx.beginPath();ctx.moveTo(0,-17);ctx.lineTo(12,-3);ctx.lineTo(5,16);ctx.lineTo(-7,16);ctx.lineTo(-13,-3);ctx.closePath();ctx.fill();ctx.stroke();
+   ctx.fillStyle='#fff';ctx.globalAlpha=.7;ctx.beginPath();ctx.moveTo(0,-12);ctx.lineTo(3,5);ctx.lineTo(-5,-2);ctx.fill();
+   ctx.restore();
+ }
+ function drawPortal() {
+   ctx.save();ctx.translate(portal.x,portal.y);
+   ctx.shadowColor='#c43dff';ctx.shadowBlur=25;
+   ctx.strokeStyle='#a84cff';ctx.lineWidth=9;ctx.beginPath();ctx.arc(0,0,32+Math.sin(frame*.05)*3,0,Math.PI*2);ctx.stroke();
+   ctx.strokeStyle='#54eaff';ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,22,0,Math.PI*2);ctx.stroke();
+   ctx.fillStyle='#6c2bd9';ctx.beginPath();ctx.arc(0,0,17,0,Math.PI*2);ctx.fill();
+   ctx.restore();
+ }
+ function drawPlayer() {
+   ctx.save();ctx.translate(player.x,player.y);
+   if(invuln>0 && Math.floor(frame/5)%2===0)ctx.globalAlpha=.35;
+   ctx.shadowColor='#42eaff';ctx.shadowBlur=16;
+   ctx.fillStyle='#e9f7ff';ctx.strokeStyle='#31d9ff';ctx.lineWidth=4;
+   ctx.beginPath();ctx.arc(0,0,player.r,0,Math.PI*2);ctx.fill();ctx.stroke();
+   ctx.fillStyle='#17234e';ctx.beginPath();ctx.roundRect(-11,-7,22,13,6);ctx.fill();
+   ctx.fillStyle='#53f1ff';ctx.beginPath();ctx.arc(-5,-1,3,0,Math.PI*2);ctx.arc(5,-1,3,0,Math.PI*2);ctx.fill();
+   ctx.restore();
+ }
+ function drawEnemy(e) {
+   ctx.save();ctx.translate(e.x,e.y);ctx.shadowColor='#fa3be6';ctx.shadowBlur=15;
+   ctx.strokeStyle='#25104d';ctx.lineWidth=13;ctx.lineCap='round';
+   ctx.beginPath();ctx.moveTo(-18,5);ctx.quadraticCurveTo(-4,-17,12,0);ctx.quadraticCurveTo(27,18,38,-3);ctx.stroke();
+   ctx.strokeStyle='#a34bff';ctx.lineWidth=8;ctx.stroke();
+   ctx.fillStyle='#ff65e9';ctx.beginPath();ctx.arc(0,-5,4,0,Math.PI*2);ctx.fill();
+   ctx.restore();
+ }
+ function update() {
+   if(state!=='playing')return;
+   frame++;
+   let dx=0,dy=0;
+   if(keys.ArrowLeft||keys.a||keys.A)dx--;
+   if(keys.ArrowRight||keys.d||keys.D)dx++;
+   if(keys.ArrowUp||keys.w||keys.W)dy--;
+   if(keys.ArrowDown||keys.s||keys.S)dy++;
+   if(dx&&dy){dx*=.707;dy*=.707;}
+   player.x=Math.max(48,Math.min(W-48,player.x+dx*player.speed));
+   player.y=Math.max(48,Math.min(H-48,player.y+dy*player.speed));
+   enemies.forEach(e=>{
+     if(e.dx){e.x+=e.dx;if(e.x<e.min||e.x>e.max)e.dx*=-1;}
+     if(e.dy){e.y+=e.dy;if(e.y<e.min||e.y>e.max)e.dy*=-1;}
+     if(invuln<=0 && Math.hypot(player.x-e.x,player.y-e.y)<player.r+17){
+       lives--;livesEl.textContent=lives;invuln=90;
+       messageEl.textContent='¡Cuidado! Una serpiente te alcanzó.';
+       if(lives<=0){state='lost';messageEl.textContent='¡Se acabaron las vidas! Inténtalo otra vez.';}
+     }
+   });
+   if(invuln>0)invuln--;
+   crystals.forEach(c=>{
+     if(!c.taken && Math.hypot(player.x-c.x,player.y-c.y)<player.r+16){
+       c.taken=true;score++;scoreEl.textContent=score;
+       messageEl.textContent='¡Cristal conseguido! '+score+' de 5.';
+     }
+   });
+   if(Math.hypot(player.x-portal.x,player.y-portal.y)<player.r+portal.r){
+     if(score===5){state='won';messageEl.textContent='¡MISIÓN CUMPLIDA! ¡Completaste el Nivel 3!';}
+     else messageEl.textContent='Te faltan '+(5-score)+' cristales para activar el portal.';
+   }
+ }
+ function draw() {
+   drawBackground();drawPortal();crystals.forEach(drawCrystal);enemies.forEach(drawEnemy);drawPlayer();
+   if(state!=='playing'){
+     ctx.fillStyle='#090d28bb';ctx.fillRect(0,0,W,H);
+     ctx.textAlign='center';ctx.shadowColor='#b34cff';ctx.shadowBlur=20;
+     ctx.fillStyle='#fff';ctx.font='bold 42px system-ui';
+     ctx.fillText(state==='won'?'¡NIVEL COMPLETADO!':'FIN DEL JUEGO',W/2,H/2-8);
+     ctx.shadowBlur=0;ctx.font='20px system-ui';
+     ctx.fillText(state==='won'?'Has recuperado la energía violeta.':'Pulsa “Volver a jugar” para intentarlo de nuevo.',W/2,H/2+32);
+   }
+ }
+ function loop(){update();draw();requestAnimationFrame(loop);}
+ window.addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();keys[e.key]=true;});
+ window.addEventListener('keyup',e=>keys[e.key]=false);
+ document.querySelectorAll('[data-key]').forEach(b=>{
+   const k=b.dataset.key;
+   b.addEventListener('pointerdown',e=>{e.preventDefault();keys[k]=true;});
+   ['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,()=>keys[k]=false));
+ });
+ document.getElementById('restart').addEventListener('click',reset);
+ reset();loop();
+})();
+</script>
+</body>
+</html>
